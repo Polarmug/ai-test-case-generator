@@ -6,7 +6,8 @@ const path = require('path');
 const SYSTEM_PROMPT = `You are a QA test-case generator. Given a user story and its acceptance criteria, generate comprehensive test cases.
 
 Rules:
-- Cover happy path, negative cases, and edge cases
+- Generate 8 to 12 test cases, with at least 2 of each type
+- Cover happy path, negative cases, and edge cases (boundaries, empty/invalid input, limits, timing)
 - "type" must be exactly one of: "Happy Path", "Negative", "Edge Case"
 - Every acceptance criterion must map to at least one test case
 - Test Case ID format: TC-[StoryID]-[two-digit number]
@@ -115,7 +116,7 @@ function callBob(userStory) {
   });
 }
 
-// ---------- IBM watsonx.ai (backup when Bob fails, e.g. out of bobcoins) ----------
+// ---------- IBM watsonx.ai (first backup when Bob fails, e.g. out of bobcoins) ----------
 
 const WATSONX_TIMEOUT_MS = 90_000;
 
@@ -169,6 +170,67 @@ async function callWatsonx(userStory) {
 
 function watsonxModel() {
   return env('WATSONX_MODEL_ID') || 'ibm/granite-4-h-small';
+}
+
+// ---------- Groq (backup) ----------
+
+const HTTP_TIMEOUT_MS = 90_000;
+
+function groqModel() {
+  return env('GROQ_MODEL') || 'openai/gpt-oss-120b';
+}
+
+async function callGroq(userStory) {
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env('GROQ_API_KEY')}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: groqModel(),
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userStory }
+      ],
+      temperature: 0.3,
+      response_format: { type: 'json_object' }
+    }),
+    signal: AbortSignal.timeout(HTTP_TIMEOUT_MS)
+  });
+  if (!res.ok) throw new Error(`Groq request failed: ${res.status} ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  return data.choices[0].message.content;
+}
+
+// ---------- Google Gemini (backup) ----------
+
+// GEMINI_MODEL may list several models; later ones are tried when Google reports the earlier ones as overloaded.
+function geminiModels() {
+  return (env('GEMINI_MODEL') || 'gemini-3.5-flash,gemini-3.5-flash-lite').split(',').map(s => s.trim()).filter(Boolean);
+}
+
+async function callGemini(userStory) {
+  let lastError;
+  for (const model of geminiModels()) {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: 'POST',
+      headers: { 'x-goog-api-key': env('GEMINI_API_KEY'), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        contents: [{ role: 'user', parts: [{ text: userStory }] }],
+        generationConfig: { temperature: 0.3, responseMimeType: 'application/json' }
+      }),
+      signal: AbortSignal.timeout(HTTP_TIMEOUT_MS)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const parts = data.candidates?.[0]?.content?.parts ?? [];
+      return { content: parts.map(p => p.text ?? '').join(''), model };
+    }
+    lastError = new Error(`Gemini ${model} request failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
+    // Only overload / rate-limit errors are worth retrying on another model.
+    if (![429, 500, 503].includes(res.status)) break;
+    console.error(`[gemini] ${model} unavailable (${res.status}), trying next model`);
+  }
+  throw lastError;
 }
 
 // ---------- Parsing and normalizing model output ----------
@@ -229,12 +291,19 @@ function normalize(raw) {
   return { testCases, coverage };
 }
 
-// Providers in priority order; only those with credentials are tried.
+const PROVIDERS = {
+  bob: { configured: bobConfigured, model: () => 'Bob Shell', call: callBob },
+  watsonx: { configured: watsonxConfigured, model: watsonxModel, call: callWatsonx },
+  groq: { configured: () => Boolean(env('GROQ_API_KEY')), model: groqModel, call: callGroq },
+  gemini: { configured: () => Boolean(env('GEMINI_API_KEY')), model: () => geminiModels()[0], call: callGemini }
+};
+
+// Providers in priority order (AI_PROVIDERS overrides it); only those with credentials are tried.
 function configuredProviders() {
-  const providers = [];
-  if (bobConfigured()) providers.push({ name: 'bob', model: 'Bob Shell', call: callBob });
-  if (watsonxConfigured()) providers.push({ name: 'watsonx', model: watsonxModel(), call: callWatsonx });
-  return providers;
+  const order = (env('AI_PROVIDERS') || 'bob,watsonx,groq,gemini').split(',').map(s => s.trim().toLowerCase());
+  return order
+    .filter(name => PROVIDERS[name]?.configured())
+    .map(name => ({ name, model: PROVIDERS[name].model(), call: PROVIDERS[name].call }));
 }
 
 // Try each provider in turn; the first usable answer wins. Throws if all fail.
@@ -243,9 +312,12 @@ async function tryProviders(providers, userStory) {
   let lastError;
   for (const provider of providers) {
     try {
-      const result = normalize(parseJson(await provider.call(userStory)));
+      // A provider returns the answer text, or { content, model } when the model used can vary.
+      const answer = await provider.call(userStory);
+      const content = typeof answer === 'string' ? answer : answer.content;
+      const result = normalize(parseJson(content));
       if (result.testCases.length === 0) throw new Error('returned no test cases');
-      return { ...result, provider: provider.name, model: provider.model };
+      return { ...result, provider: provider.name, model: answer.model ?? provider.model };
     } catch (err) {
       console.error(`[${provider.name}] failed: ${err.message}`);
       lastError = err;

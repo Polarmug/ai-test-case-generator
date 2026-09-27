@@ -469,3 +469,105 @@ tbody tr.highlight {
     justify-content: flex-start;
   }
 }
+
+/* ---------- Edit / delete rows ---------- */
+
+.banner-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--accent-soft);
+  color: var(--text);
+  border: 1px solid #b8cffd;
+}
+
+.actions-col {
+  width: 1%;
+}
+
+.row-actions {
+  white-space: nowrap;
+}
+
+.row-actions button + button {
+  margin-left: 6px;
+}
+
+.small {
+  padding: 5px 10px;
+  font-size: 13px;
+  border-radius: 6px;
+}
+
+.ghost {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-weight: 500;
+}
+
+.ghost:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ghost.danger:hover:not(:disabled) {
+  border-color: var(--negative);
+  color: var(--negative);
+}
+
+.ghost:disabled {
+  opacity: 0.4;
+}
+
+tr.editing {
+  background: var(--accent-soft);
+}
+
+tr.editing input,
+tr.editing textarea,
+tr.editing select {
+  width: 100%;
+  min-width: 120px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: 13px/1.4 'IBM Plex Sans', system-ui, sans-serif;
+  color: var(--text);
+  background: var(--surface);
+  resize: vertical;
+}
+
+tr.editing input:focus,
+tr.editing textarea:focus,
+tr.editing select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.field-label {
+  display: block;
+  margin: 6px 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.field-label:first-child {
+  margin-top: 0;
+}
+
+.edited-tag {
+  margin-top: 4px;
+  font: 11px 'IBM Plex Sans', system-ui, sans-serif;
+  color: var(--accent);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

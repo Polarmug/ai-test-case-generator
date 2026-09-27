@@ -1,6 +1,6 @@
 # AI Test-Case Generator
 
-Paste a user story with acceptance criteria → **IBM Bob** (with **IBM watsonx.ai** as backup) generates test cases (Happy Path / Negative / Edge Case) → shown in a table with an acceptance-criteria coverage check → exported to CSV.
+Paste a user story with acceptance criteria → **IBM Bob** (with IBM watsonx.ai, Groq and Google Gemini as backups) generates test cases (Happy Path / Negative / Edge Case) → shown in a table with an acceptance-criteria coverage check → edit or delete rows → export to CSV.
 
 ## How Bob is used
 
@@ -17,8 +17,12 @@ The prompt (instructions + user story) goes in on stdin. Bob's JSON answer (`las
 Each request tries, in order:
 
 1. **IBM Bob Shell**: primary
-2. **IBM watsonx.ai** (Granite, default `ibm/granite-4-h-small`): backup when Bob fails, e.g. out of bobcoins, error or timeout
-3. **Saved example** (`fallback.json`): last resort so the demo never shows an error
+2. **IBM watsonx.ai** (Granite, default `ibm/granite-4-h-small`): first backup when Bob fails, e.g. out of bobcoins, error or timeout
+3. **Groq** (default `openai/gpt-oss-120b`): fast backup
+4. **Google Gemini** (default `gemini-3.5-flash`, then `gemini-3.5-flash-lite` if Google reports it overloaded)
+5. **Saved example** (`fallback.json`): last resort so the demo never shows an error
+
+Change the order with `AI_PROVIDERS` in `.env`, e.g. `AI_PROVIDERS=groq,gemini` to test without spending bobcoins.
 
 Providers without credentials in `.env` are skipped. The page's "Powered by" badge shows which one answered, and the backend logs why a provider failed.
 
@@ -28,12 +32,12 @@ Providers without credentials in `.env` are skipped. The page's "Powered by" bad
 test-case-generator/
 ├── backend/               Node + Express, port 3001
 │   ├── server.js          Routes: POST /api/generate, GET /api/health
-│   ├── llm.js             Prompt, Bob Shell + watsonx.ai calls, provider chain, JSON normalization
+│   ├── llm.js             Prompt, Bob Shell / watsonx.ai / Groq / Gemini calls, provider chain, JSON normalization
 │   ├── fallback.json      Saved example result, served if Bob fails
 │   ├── llm.test.js        Tests (npm test)
 │   └── .env               API keys (never commit; template in .env.example)
 └── frontend/              Vite + React + TypeScript, port 5173
-    └── src/App.tsx        UI: input, summary/filter, coverage, table, CSV export
+    └── src/App.tsx        UI: input, summary/filter, coverage, editable table, CSV export
 ```
 
 ## Setup
@@ -68,7 +72,7 @@ railway up              # upload and build this folder
 ```
 
 Then in the Railway dashboard, open the service:
-- **Variables:** add `BOB_API_KEY` and `BOB_ACCEPT_LICENSE=true`, plus the `WATSONX_*` variables for the backup (optionally `BOB_MAX_COST`, `RATE_LIMIT`, `MAX_CONCURRENT_BOB_RUNS`)
+- **Variables:** add `BOB_API_KEY` and `BOB_ACCEPT_LICENSE=true`, plus the `WATSONX_*`, `GROQ_API_KEY` and `GEMINI_API_KEY` variables for the backups (optionally `BOB_MAX_COST`, `RATE_LIMIT`, `MAX_CONCURRENT_BOB_RUNS`)
 - **Settings → Networking → Generate Domain** to get the public URL
 
 `.env` is excluded from the upload by `.dockerignore`; the key only lives in Railway's variables.
@@ -78,10 +82,9 @@ Public-use limits (each Bob run costs bobcoins): 10 generations per visitor per 
 ## How it stays demo-safe
 
 - Bob's output is parsed leniently (markdown fences stripped) and normalized: missing fields become empty strings, `steps` is always an array, `type` is mapped to Happy Path / Negative / Edge Case.
-- If Bob fails or times out (120 s), watsonx.ai answers instead. If both fail, the backend returns `fallback.json` with a visible notice instead of an error.
+- If Bob fails or times out (120 s), the next provider answers instead. If all fail, the backend returns `fallback.json` with a visible notice instead of an error.
 
 ## Ideas for later
 
 - Batch CSV upload of several stories
-- Edit/delete individual test cases before export
 - Excel or TestRail/Jira import formats
