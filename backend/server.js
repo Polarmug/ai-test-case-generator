@@ -3,14 +3,14 @@ const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
-const { generateTestCases, bobConfigured } = require('./llm');
+const { generateTestCases, configuredProviders } = require('./llm');
 const fallback = require('./fallback.json');
 
 const PORT = Number(process.env.PORT) || 3001;
 const MAX_STORY_LENGTH = 8000;
 const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist');
 
-// Every Bob run costs bobcoins, so cap requests per visitor and parallel Bob runs.
+// Every AI run costs bobcoins / watsonx credits, so cap requests per visitor and parallel Bob runs.
 const RATE_LIMIT = Number(process.env.RATE_LIMIT) || 10;
 const RATE_WINDOW_MS = 15 * 60 * 1000;
 const MAX_CONCURRENT_BOB_RUNS = Number(process.env.MAX_CONCURRENT_BOB_RUNS) || 2;
@@ -36,7 +36,7 @@ app.use(cors());
 app.use(express.json({ limit: '100kb' }));
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, bobConfigured: bobConfigured() });
+  res.json({ ok: true, providers: configuredProviders().map(p => p.name) });
 });
 
 app.post('/api/generate', async (req, res) => {
@@ -83,5 +83,6 @@ if (fs.existsSync(FRONTEND_DIST)) {
 
 app.listen(PORT, () => {
   console.log(`Backend running on http://localhost:${PORT}`);
-  console.log(bobConfigured() ? 'AI: IBM Bob Shell' : 'AI: BOB_API_KEY not set, serving saved example');
+  const providers = configuredProviders().map(p => p.name);
+  console.log(`AI providers: ${providers.length ? providers.join(' -> ') : 'none'} -> saved example`);
 });

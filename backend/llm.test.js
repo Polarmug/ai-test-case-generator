@@ -64,3 +64,39 @@ test('extractBobText reads last_message as a message object', () => {
 test('extractBobText rejects failed runs', () => {
   assert.throws(() => extractBobText(JSON.stringify({ status: 'error', last_message: 'x' })));
 });
+
+const { tryProviders } = require('./llm');
+
+const good = { testCases: [{ testCaseId: 'TC-1', type: 'Negative', steps: ['a'] }] };
+
+test('tryProviders falls back to the next provider when one fails', async () => {
+  const result = await tryProviders([
+    { name: 'bob', model: 'Bob Shell', call: async () => { throw new Error('out of bobcoins'); } },
+    { name: 'watsonx', model: 'granite', call: async () => JSON.stringify(good) }
+  ], 'story');
+  assert.strictEqual(result.provider, 'watsonx');
+  assert.strictEqual(result.testCases[0].type, 'Negative');
+});
+
+test('tryProviders skips a provider that returns no test cases', async () => {
+  const result = await tryProviders([
+    { name: 'bob', model: 'Bob Shell', call: async () => '{"testCases": []}' },
+    { name: 'watsonx', model: 'granite', call: async () => JSON.stringify(good) }
+  ], 'story');
+  assert.strictEqual(result.provider, 'watsonx');
+});
+
+test('tryProviders uses the first provider when it works', async () => {
+  const result = await tryProviders([
+    { name: 'bob', model: 'Bob Shell', call: async () => JSON.stringify(good) },
+    { name: 'watsonx', model: 'granite', call: async () => { throw new Error('should not be called'); } }
+  ], 'story');
+  assert.strictEqual(result.provider, 'bob');
+});
+
+test('tryProviders throws when every provider fails', async () => {
+  await assert.rejects(tryProviders([
+    { name: 'bob', model: 'Bob Shell', call: async () => { throw new Error('down'); } }
+  ], 'story'));
+  await assert.rejects(tryProviders([], 'story'));
+});

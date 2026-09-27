@@ -46,6 +46,10 @@ function bobConfigured() {
   return Boolean(env('BOB_API_KEY'));
 }
 
+function watsonxConfigured() {
+  return Boolean(env('WATSONX_API_KEY') && env('WATSONX_PROJECT_ID'));
+}
+
 // Bob runs in an empty scratch folder so it has no project files to read or modify.
 const BOB_WORKSPACE = path.join(os.tmpdir(), 'test-case-generator-bob');
 fs.mkdirSync(BOB_WORKSPACE, { recursive: true });
@@ -111,6 +115,62 @@ function callBob(userStory) {
   });
 }
 
+// ---------- IBM watsonx.ai (backup when Bob fails, e.g. out of bobcoins) ----------
+
+const WATSONX_TIMEOUT_MS = 90_000;
+
+let iamToken = null;
+let iamTokenExpiresAt = 0;
+
+// Exchange the IBM Cloud API key for a short-lived IAM bearer token, cached until near expiry.
+async function getIamToken() {
+  if (iamToken && Date.now() < iamTokenExpiresAt - 60_000) return iamToken;
+  const res = await fetch('https://iam.cloud.ibm.com/identity/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ibm:params:oauth:grant-type:apikey',
+      apikey: env('WATSONX_API_KEY')
+    }),
+    signal: AbortSignal.timeout(WATSONX_TIMEOUT_MS)
+  });
+  if (!res.ok) throw new Error(`IBM IAM token request failed: ${res.status} ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  iamToken = data.access_token;
+  iamTokenExpiresAt = data.expiration * 1000;
+  return iamToken;
+}
+
+async function callWatsonx(userStory) {
+  const baseUrl = env('WATSONX_URL') || 'https://us-south.ml.cloud.ibm.com';
+  const res = await fetch(`${baseUrl}/ml/v1/text/chat?version=2024-05-31`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${await getIamToken()}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    },
+    body: JSON.stringify({
+      model_id: watsonxModel(),
+      project_id: env('WATSONX_PROJECT_ID'),
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userStory }
+      ],
+      temperature: 0.3,
+      max_tokens: 4000
+    }),
+    signal: AbortSignal.timeout(WATSONX_TIMEOUT_MS)
+  });
+  if (!res.ok) throw new Error(`watsonx.ai request failed: ${res.status} ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  return data.choices[0].message.content;
+}
+
+function watsonxModel() {
+  return env('WATSONX_MODEL_ID') || 'ibm/granite-4-h-small';
+}
+
 // ---------- Parsing and normalizing model output ----------
 
 // Models sometimes wrap JSON in ```fences``` or add prose around it.
@@ -169,12 +229,33 @@ function normalize(raw) {
   return { testCases, coverage };
 }
 
-// Ask Bob for test cases. Throws if Bob isn't configured or its answer is unusable.
-async function generateTestCases(userStory) {
-  if (!bobConfigured()) throw new Error('BOB_API_KEY is not set in backend/.env');
-  const result = normalize(parseJson(await callBob(userStory)));
-  if (result.testCases.length === 0) throw new Error('Bob returned no test cases');
-  return { ...result, provider: 'bob', model: 'Bob Shell' };
+// Providers in priority order; only those with credentials are tried.
+function configuredProviders() {
+  const providers = [];
+  if (bobConfigured()) providers.push({ name: 'bob', model: 'Bob Shell', call: callBob });
+  if (watsonxConfigured()) providers.push({ name: 'watsonx', model: watsonxModel(), call: callWatsonx });
+  return providers;
 }
 
-module.exports = { generateTestCases, bobConfigured, normalize, parseJson, extractBobText };
+// Try each provider in turn; the first usable answer wins. Throws if all fail.
+async function tryProviders(providers, userStory) {
+  if (providers.length === 0) throw new Error('No AI provider configured in backend/.env');
+  let lastError;
+  for (const provider of providers) {
+    try {
+      const result = normalize(parseJson(await provider.call(userStory)));
+      if (result.testCases.length === 0) throw new Error('returned no test cases');
+      return { ...result, provider: provider.name, model: provider.model };
+    } catch (err) {
+      console.error(`[${provider.name}] failed: ${err.message}`);
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
+
+function generateTestCases(userStory) {
+  return tryProviders(configuredProviders(), userStory);
+}
+
+module.exports = { generateTestCases, configuredProviders, tryProviders, normalize, parseJson, extractBobText };

@@ -36,6 +36,7 @@ const TYPES: TestType[] = ['Happy Path', 'Negative', 'Edge Case'];
 
 const PROVIDER_LABELS: Record<string, string> = {
   bob: 'IBM Bob',
+  watsonx: 'IBM watsonx.ai',
   fallback: 'Saved example'
 };
 
