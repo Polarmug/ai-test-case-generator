@@ -16,7 +16,7 @@ The prompt (instructions + user story) goes in on stdin. Bob's JSON answer (`las
 
 Each request tries, in order:
 
-1. **IBM Bob Shell**: primary
+1. **IBM Bob Shell**: primary. If `BOB_API_KEY_2` is set, it's tried when the first key fails (e.g. out of bobcoins or revoked)
 2. **IBM watsonx.ai** (Granite, default `ibm/granite-4-h-small`): first backup when Bob fails, e.g. out of bobcoins, error or timeout
 3. **Groq** (default `openai/gpt-oss-120b`): fast backup
 4. **Google Gemini** (default `gemini-3.5-flash`, then `gemini-3.5-flash-lite` if Google reports it overloaded)

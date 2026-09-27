@@ -43,8 +43,13 @@ function env(name) {
   return value && !value.startsWith('your_') ? value : undefined;
 }
 
+// BOB_API_KEY_2 is a spare key, used when the first one fails (e.g. out of bobcoins or revoked).
+function bobKeys() {
+  return [env('BOB_API_KEY'), env('BOB_API_KEY_2')].filter(Boolean);
+}
+
 function bobConfigured() {
-  return Boolean(env('BOB_API_KEY'));
+  return bobKeys().length > 0;
 }
 
 function watsonxConfigured() {
@@ -73,8 +78,24 @@ function extractBobText(stdout) {
   throw new Error('Bob Shell output had no last_message');
 }
 
+// Try each Bob key in turn. A timeout means Bob itself is slow, so the spare key isn't tried then.
+async function callBob(userStory) {
+  const keys = bobKeys();
+  let lastError;
+  for (const [i, apiKey] of keys.entries()) {
+    try {
+      return await runBob(userStory, apiKey);
+    } catch (err) {
+      lastError = err;
+      if (err.timedOut || i === keys.length - 1) break;
+      console.error(`[bob] key ${i + 1} failed (${err.message.slice(0, 120)}), trying spare key`);
+    }
+  }
+  throw lastError;
+}
+
 // Run `bob run --format json` with the prompt on stdin and return Bob's final answer.
-function callBob(userStory) {
+function runBob(userStory, apiKey) {
   const command = env('BOB_COMMAND') || 'bob';
   const args = ['run', '--format', 'json', '--mode', env('BOB_MODE') || 'ask', '--disable-mcp',
     '--disable-subagents', '--log-level', 'silent', '--trust', '--workspace', `"${BOB_WORKSPACE}"`];
@@ -86,12 +107,16 @@ function callBob(userStory) {
     // Run through the shell so Windows can resolve bob.cmd / bob.ps1 shims. Every part of the
     // command line is a fixed string or config value; the user story only goes in via stdin.
     const commandLine = [command.includes(' ') ? `"${command}"` : command, ...args].join(' ');
-    const child = spawn(commandLine, { shell: true, env: { ...process.env, NODE_NO_WARNINGS: '1' }, windowsHide: true });
+    const child = spawn(commandLine, {
+      shell: true,
+      env: { ...process.env, BOB_API_KEY: apiKey, NODE_NO_WARNINGS: '1' },
+      windowsHide: true
+    });
     let stdout = '';
     let stderr = '';
     const timer = setTimeout(() => {
       child.kill();
-      reject(new Error(`Bob Shell timed out after ${BOB_TIMEOUT_MS / 1000}s`));
+      reject(Object.assign(new Error(`Bob Shell timed out after ${BOB_TIMEOUT_MS / 1000}s`), { timedOut: true }));
     }, BOB_TIMEOUT_MS);
 
     child.stdout.on('data', d => { stdout += d; });
