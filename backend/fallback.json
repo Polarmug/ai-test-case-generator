@@ -1,0 +1,99 @@
+{
+  "testCases": [
+    {
+      "testCaseId": "TC-001-01",
+      "scenario": "Log in with valid credentials",
+      "type": "Happy Path",
+      "preconditions": "User account exists and is active",
+      "steps": ["Open the login page", "Enter a valid username", "Enter the correct password", "Click Log in"],
+      "testData": "username: jdoe@example.com, password: Correct#123",
+      "expectedResult": "User is redirected to their account dashboard",
+      "storyId": "001"
+    },
+    {
+      "testCaseId": "TC-001-02",
+      "scenario": "Log in with a username that has different letter case",
+      "type": "Happy Path",
+      "preconditions": "User account exists and is active",
+      "steps": ["Open the login page", "Enter the username in upper case", "Enter the correct password", "Click Log in"],
+      "testData": "username: JDOE@EXAMPLE.COM, password: Correct#123",
+      "expectedResult": "User is logged in; username matching is case-insensitive",
+      "storyId": "001"
+    },
+    {
+      "testCaseId": "TC-001-03",
+      "scenario": "Log in with a wrong password",
+      "type": "Negative",
+      "preconditions": "User account exists and is active",
+      "steps": ["Open the login page", "Enter a valid username", "Enter an incorrect password", "Click Log in"],
+      "testData": "username: jdoe@example.com, password: Wrong#999",
+      "expectedResult": "Login is rejected with a generic 'Invalid username or password' message",
+      "storyId": "001"
+    },
+    {
+      "testCaseId": "TC-001-04",
+      "scenario": "Log in with an unregistered username",
+      "type": "Negative",
+      "preconditions": "No account exists for the username",
+      "steps": ["Open the login page", "Enter an unregistered username", "Enter any password", "Click Log in"],
+      "testData": "username: nobody@example.com, password: Any#123",
+      "expectedResult": "Login is rejected with the same generic message as a wrong password",
+      "storyId": "001"
+    },
+    {
+      "testCaseId": "TC-001-05",
+      "scenario": "Submit the form with empty fields",
+      "type": "Negative",
+      "preconditions": "User is on the login page",
+      "steps": ["Leave username and password empty", "Click Log in"],
+      "testData": "username: (empty), password: (empty)",
+      "expectedResult": "Form is not submitted; required-field errors are shown",
+      "storyId": "001"
+    },
+    {
+      "testCaseId": "TC-001-06",
+      "scenario": "Account locks after 5 failed attempts",
+      "type": "Negative",
+      "preconditions": "User account exists with 0 failed attempts",
+      "steps": ["Enter a wrong password 5 times in a row", "Enter the correct password", "Click Log in"],
+      "testData": "5 x password: Wrong#999, then Correct#123",
+      "expectedResult": "Account is locked; the correct password is rejected with an 'account locked' message",
+      "storyId": "001"
+    },
+    {
+      "testCaseId": "TC-001-07",
+      "scenario": "4 failed attempts followed by a successful login",
+      "type": "Edge Case",
+      "preconditions": "User account exists with 0 failed attempts",
+      "steps": ["Enter a wrong password 4 times", "Enter the correct password", "Click Log in"],
+      "testData": "4 x password: Wrong#999, then Correct#123",
+      "expectedResult": "User is logged in and the failed-attempt counter resets to 0",
+      "storyId": "001"
+    },
+    {
+      "testCaseId": "TC-001-08",
+      "scenario": "Failed-attempt counter does not carry over after a successful login",
+      "type": "Edge Case",
+      "preconditions": "User has 4 failed attempts, then logs in successfully and logs out",
+      "steps": ["Enter a wrong password once", "Enter the correct password", "Click Log in"],
+      "testData": "password: Wrong#999, then Correct#123",
+      "expectedResult": "User is logged in; account is not locked",
+      "storyId": "001"
+    },
+    {
+      "testCaseId": "TC-001-09",
+      "scenario": "Password with leading/trailing whitespace",
+      "type": "Edge Case",
+      "preconditions": "User account exists and is active",
+      "steps": ["Enter a valid username", "Enter the correct password with a trailing space", "Click Log in"],
+      "testData": "password: 'Correct#123 '",
+      "expectedResult": "Login is rejected; passwords are compared exactly",
+      "storyId": "001"
+    }
+  ],
+  "coverage": [
+    { "criterion": "valid credentials grant access", "testCaseIds": ["TC-001-01", "TC-001-02", "TC-001-07"] },
+    { "criterion": "wrong password is rejected", "testCaseIds": ["TC-001-03", "TC-001-04", "TC-001-05", "TC-001-09"] },
+    { "criterion": "account locks after 5 failed attempts", "testCaseIds": ["TC-001-06", "TC-001-07", "TC-001-08"] }
+  ]
+}
